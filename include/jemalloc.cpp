@@ -319,7 +319,8 @@ void arena_chunk_node_alloc(arena_t *arena, arena_chunk_t *chunk, size_t size){
 // From the given vector, return the first usable run
 arena_run_t* smallest_usable_run_larger_than_current(arena_t *arena, vector<arena_run_t*> *runs){
 	int run_vec_size=runs->size();
-	arena_run_t *curr_run, *run;
+	// return NULL;
+	arena_run_t *curr_run=NULL, *run=NULL;
 	for(int i=0;i<run_vec_size;i++){
 		curr_run=runs->at(i);
 		if(curr_run->nfree>0){
@@ -409,33 +410,34 @@ static size_t arena_bin_run_size_calc(arena_bin_t *bin, size_t min_run_size){
 
 
 void arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool small, bool zero){
+	/*
+	* Insert run into the data structure for the arena. The data structure is the list of allocated runs.
+	* Set the size of the run.
+	* The size of run must be smaller/equal to the chunk size
+	* 
+	*/
   arena_chunk_t *chunk, *allocated_chunk;
   size_t run_index, total_pages, pages_required, remaining_pages, index, need_pages;
 
-  chunk=(arena_chunk_t *)CHUNK_ADDR2BASE(run);
-  // create a chunk of the required size and add it to the map
-  arena_chunk_node_alloc(arena, chunk, size);
-  // insert the created run into &arena->runs_alloced_ad
   insert_created_run_into_list(arena, run);
+	printf("Inserted\n");
+  chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(run);  // obtain the base address of the chunk
+  run_index = (unsigned)(((uintptr_t)run - (uintptr_t)chunk) >> pagesize_2pow);
+  total_pages = chunk->size >> pagesize_2pow;
+  need_pages = (size >> pagesize_2pow);
+  printf("Chunk: %d\nRun_index: %d, total_pages: %d, need_pages: %d\n", chunk, run_index, total_pages, need_pages);
+  assert(need_pages > 0);
+  printf("Need_Pages->%d: Total_pages->%d\n", need_pages, total_pages);
+  assert(need_pages <= total_pages);
+  remaining_pages = total_pages - need_pages;
 
-
-  // check if the below is required
-
-//   run_index = (unsigned)(((uintptr_t)run - (uintptr_t)chunk) >> pagesize_2pow);
-//   total_pages = chunk->size >> pagesize_2pow;
-//   need_pages = (size >> pagesize_2pow);
-//   assert(need_pages > 0);
-//   assert(need_pages <= total_pages);
-//   remaining_pages = total_pages - need_pages;
-
-//   for(index=0;index<need_pages;index+=1){
-//     if(zero){
-//       if ((chunk->map[run_index + index] & CHUNK_MAP_UNTOUCHED) == 0) {
-// 				memset((void *)((uintptr_t)chunk + ((run_index
-// 				    + index) << pagesize_2pow)), 0, pagesize);
-// 				/* CHUNK_MAP_UNTOUCHED is cleared below. */
-// 			}
-// 		}
+  for(index=0;index<need_pages;index+=1){
+    if(zero){
+      if ((chunk->map[run_index + index] & CHUNK_MAP_UNTOUCHED) == 0) {
+				memset((void *)((uintptr_t)chunk + ((run_index
+				    + index) << pagesize_2pow)), 0, pagesize);
+			}
+		}
 
 // 		/* Update dirty page accounting. */
 // 		if (chunk->map[run_index + index] & CHUNK_MAP_DIRTY) {
@@ -448,9 +450,8 @@ void arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool small, 
 // 			chunk->map[run_index + index] = (uint8_t)index;
 // 		else
 // 			chunk->map[run_index + index] = CHUNK_MAP_LARGE;
-//   }
-
-// 	chunk->pages_used += need_pages;
+  }
+  chunk->pages_used += need_pages;
 }
 
 inline void* chunk_alloc_mmap(size_t size){
@@ -524,11 +525,15 @@ arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero)
   if(chunk==NULL){
     return NULL;
   }
-
-  run = (arena_run_t *)((uintptr_t)chunk + (arena_chunk_header_npages << pagesize_2pow));
-
+	/* 
+	A new chunk of memory has been created.
+	Using this new chunk, define a page run starting at the base address
+	*/
+  	run = (arena_run_t *)((uintptr_t)chunk + (arena_chunk_header_npages << pagesize_2pow));
+	printf("Updating page map\n");
 	/* Update page map. */
 	arena_run_split(arena, run, size, small, zero);
+	printf("Finished Update\n");
 	return (run);
 }
 
@@ -592,27 +597,26 @@ inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
     remove_run(arena, &bin->runs, run);  // remove the run from bins->runs
     return run;
   }
-
+printf("Allocating new run\n");
   // Allocate new run
   run = arena_run_alloc(arena, bin->run_size, true, false);
   if(run==NULL){
     return NULL;
   }
-
+printf("Initializing new run\n");
   // Initialize new run
   run->bin = bin;
-  for (i = 0; i < bin->regs_mask_nelms; i++){
-    run->regs_mask[i] = UINT_MAX;
-  }
-  remainder = bin->nregs & ((1U << (SIZEOF_INT_2POW + 3)) - 1);
-  if(remainder != 0) {
-    /* The last element has spare bits that need to be unset. */
-    run->regs_mask[i] = (UINT_MAX >> ((1U << (SIZEOF_INT_2POW + 3)) - remainder));
-  }
-
   run->regs_minelm = 0;
-
   run->nfree = bin->nregs;
+
+	for (i = 0; i < bin->regs_mask_nelms; i++){
+		run->regs_mask[i] = UINT_MAX;
+	}
+	remainder = bin->nregs & ((1U << (SIZEOF_INT_2POW + 3)) - 1);
+	if(remainder != 0) {
+		/* The last element has spare bits that need to be unset. */
+		run->regs_mask[i] = (UINT_MAX >> ((1U << (SIZEOF_INT_2POW + 3)) - remainder));
+	}
 
   return run;
 }
@@ -893,6 +897,8 @@ void init(int count){
 	}
 }
 
+
+/*
 void pollOrigMalloc(int num_times) {
     for(int i = 0; i < num_times; i++) {
        auto v = malloc(8);
@@ -947,16 +953,16 @@ void testParallelFastJeMalloc(int total_calls) {
     std::cout<<"Time taken for parallel JEMalloc allocator "<< time_taken << std::setprecision(10)<<" sec"<<std::endl;
 }
 
-
+*/
 
 int main(){
 	printf("Hello World\n");
-	init(1000);
+	init(10);
 	// for(int i=0;i<20;i++){
-	// 	auto ptr = my_malloc(8);
-	// 	cout<<ptr<<endl;
+		auto ptr = my_malloc(8);
+		cout<<ptr<<endl;
 	// }
-	testParallelOrigMalloc(10000);
-	testParallelFastJeMalloc(10000);
+	// testParallelOrigMalloc(10000);
+	// testParallelFastJeMalloc(10000);
 	return 0;
 }

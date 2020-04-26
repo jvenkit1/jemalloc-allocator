@@ -76,3 +76,12 @@ Metadata about huge allocations are stored in a single red-black tree.<br/>
 For small and large allocations, chunks are carved into page runs using the **binary buddy algorithm**. Blocks are repeatedly split into smaller sized blocks to cater to a allocation request, but can only be coalesced in ways that reverse the splitting process.
 
 Small allocations fall into 3 subcategories - tiny, quantum-spaced and sub-page. This particular distribution of the splits reduces average internal fragmentation.
+
+
+* Arena Purging:
+Arena Purging occurs if the number of dirty bits in an arena exceeds the max amount of dirty bits that we have set.
+
+* Base pages allocate:
+We allocate pages initially. Different environments use different API's to perform this. Windows uses VirtualAlloc API to allocate memory pages.
+
+* opt_junk flag sets junk value to the reserved space

@@ -147,6 +147,7 @@ inline void malloc_spin_unlock(malloc_spinlock_t *lock){
 /* Forward Declarations */
 typedef struct arena_run_t arena_run_t;
 typedef struct arena_t arena_t;
+typedef struct arena_chunk_t arena_chunk_t;
 
 struct arena_bin_t{
 	arena_run_t *runcurr;  // current run used to service allocations of this bin size
@@ -160,6 +161,7 @@ struct arena_bin_t{
 
 struct arena_run_t{
 	arena_bin_t *bin; // bin that this run is associated with
+	arena_chunk_t *chunk_base_addr;
 	unsigned regs_minelm; // index of the first element that might have a free region
 	unsigned nfree; // number of free regions in the run
 	unsigned regs_mask[1]; // Bitmask of in-use regions (0: in use, 1: free). Dynamically sized.
@@ -367,34 +369,6 @@ static size_t arena_bin_run_size_calc(arena_bin_t *bin, size_t min_run_size){
     good_mask_nelms = try_mask_nelms;
     good_reg0_offset = try_reg0_offset;
 
-
-	/* run_size expansion loop. */
-	// do {
-	// 	/*
-	// 	 * Copy valid settings before trying more aggressive settings.
-	// 	 */
-	// 	good_run_size = try_run_size;
-	// 	good_nregs = try_nregs;
-	// 	good_mask_nelms = try_mask_nelms;
-	// 	good_reg0_offset = try_reg0_offset;
-
-	// 	/* Try more aggressive settings. */
-	// 	try_run_size += pagesize;
-	// 	try_nregs = ((try_run_size - sizeof(arena_run_t)) /
-	// 	    bin->reg_size) + 1; /* Counter-act try_nregs-- in loop. */
-	// 	do {
-	// 		try_nregs--;
-	// 		try_mask_nelms = (try_nregs >> (SIZEOF_INT_2POW + 3)) +
-	// 		    ((try_nregs & ((1U << (SIZEOF_INT_2POW + 3)) - 1)) ?
-	// 		    1 : 0);
-	// 		try_reg0_offset = try_run_size - (try_nregs *
-	// 		    bin->reg_size);
-	// 	} while (sizeof(arena_run_t) + (sizeof(unsigned) *
-	// 	    (try_mask_nelms - 1)) > try_reg0_offset);
-	// } while (try_run_size <= arena_maxclass && try_run_size <= RUN_MAX_SMALL
-	//     && RUN_MAX_OVRHD * (bin->reg_size << 3) > RUN_MAX_OVRHD_RELAX
-	//     && (try_reg0_offset << RUN_BFP) > RUN_MAX_OVRHD * try_run_size);
-
 	assert(sizeof(arena_run_t) + (sizeof(unsigned) * (good_mask_nelms - 1))
 	    <= good_reg0_offset);
 	assert((good_mask_nelms << (SIZEOF_INT_2POW + 3)) >= good_nregs);
@@ -420,14 +394,17 @@ void arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool small, 
   size_t run_index, total_pages, pages_required, remaining_pages, index, need_pages;
 
   insert_created_run_into_list(arena, run);
-	printf("Inserted\n");
-  chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(run);  // obtain the base address of the chunk
+//   printf("Inserted into Data Structure\n");
+//   printf("Run Base address: %d\nValue is : %d", run, ~chunksize_mask);
+  chunk = run->chunk_base_addr;
+  arena_chunk_t* temp_chunk_addr = (arena_chunk_t *)CHUNK_ADDR2BASE(run);
+//   chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(run);  // obtain the base address of the chunk
   run_index = (unsigned)(((uintptr_t)run - (uintptr_t)chunk) >> pagesize_2pow);
   total_pages = chunk->size >> pagesize_2pow;
   need_pages = (size >> pagesize_2pow);
-  printf("Chunk: %d\nRun_index: %d, total_pages: %d, need_pages: %d\n", chunk, run_index, total_pages, need_pages);
+//   printf("Chunk: %d\nRun_index: %d, total_pages: %d, need_pages: %d\n", chunk, run_index, total_pages, need_pages);
   assert(need_pages > 0);
-  printf("Need_Pages->%d: Total_pages->%d\n", need_pages, total_pages);
+//   printf("Need_Pages->%d: Total_pages->%d\n", need_pages, total_pages);
   assert(need_pages <= total_pages);
   remaining_pages = total_pages - need_pages;
 
@@ -497,6 +474,7 @@ arena_chunk_t *arena_chunk_alloc(arena_t* arena, size_t size){
 		chunk->pages_used = 0;
 		chunk->ndirty = 0;
 		chunk->size=size;
+		// printf("Set ChunkSize\n");
 	}
 	// insert into runs_avail_
 	return chunk;
@@ -530,10 +508,11 @@ arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero)
 	Using this new chunk, define a page run starting at the base address
 	*/
   	run = (arena_run_t *)((uintptr_t)chunk + (arena_chunk_header_npages << pagesize_2pow));
-	printf("Updating page map\n");
+	// printf("Updating page map\n");
 	/* Update page map. */
+	run->chunk_base_addr=chunk;
 	arena_run_split(arena, run, size, small, zero);
-	printf("Finished Update\n");
+	// printf("Finished Update\n");
 	return (run);
 }
 
@@ -597,13 +576,13 @@ inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
     remove_run(arena, &bin->runs, run);  // remove the run from bins->runs
     return run;
   }
-printf("Allocating new run\n");
+// printf("Allocating new run\n");
   // Allocate new run
   run = arena_run_alloc(arena, bin->run_size, true, false);
   if(run==NULL){
     return NULL;
   }
-printf("Initializing new run\n");
+// printf("Initializing new run\n");
   // Initialize new run
   run->bin = bin;
   run->regs_minelm = 0;
@@ -841,20 +820,26 @@ void arenas_create(arena_t *arena){
 
 void init(int count){
 	num_arenas=count;
+	pagesize_2pow=12;
+
 	chunksize = (1LU << opt_chunk_2pow);
 	chunksize_mask = chunksize - 1;
+	chunk_npages = (chunksize >> pagesize_2pow);
+	chunk_npages=256;
+	printf("Init:\n chunksize=%d\nchunksize_mask=%d --- %d\n", chunksize, chunksize_mask, ~chunksize_mask);
 	size_t header_size = sizeof(arena_chunk_t) +
 			(sizeof(arena_chunk_map_t) * (chunk_npages - 1)) +
 			(sizeof(arena_chunk_t) * chunk_npages);
-	arena_chunk_header_npages=1000;
+	// arena_chunk_header_npages=1000;
 
 	long result = sysconf(_SC_PAGESIZE);
 	assert(result != -1);
 
 	pagesize_mask = result - 1;
-	pagesize_2pow = ffs((int)result) - 1;
+	// pagesize_2pow = ffs((int)result) - 1;
 
 	pagesize = (unsigned) result;
+	int test_variable = header_size/4096;
 	arena_chunk_header_npages = (header_size >> pagesize_2pow) +
 			((header_size & pagesize_mask) != 0);
 	// arena_maxclass=1000;
@@ -883,11 +868,6 @@ void init(int count){
 		small_min = 1;
 	assert(small_min <= quantum);
 
-	/* Set variables according to the value of opt_chunk_2pow. */
-	chunksize = (1LU << opt_chunk_2pow);
-	chunksize_mask = chunksize - 1;
-	chunk_npages = (chunksize >> pagesize_2pow);
-
 
 	//Populate Arenas
 	for(int i=0;i<count;i++){
@@ -898,7 +878,6 @@ void init(int count){
 }
 
 
-/*
 void pollOrigMalloc(int num_times) {
     for(int i = 0; i < num_times; i++) {
        auto v = malloc(8);
@@ -916,10 +895,11 @@ void pollJEMalloc(int num_times){
 void testParallelOrigMalloc(int total_calls) {
     int num_threads = 8;
     int num_each = total_calls/num_threads;
-    clock_t start, end; 
+    // clock_t start, end; 
     vector<std::thread> threads;
 
-    start = clock();
+	auto start = std::chrono::high_resolution_clock::now();
+    // start = clock();
     for(int i = 0; i < num_threads ; i++) {
         threads.push_back(std::thread(pollOrigMalloc, num_each));
     }
@@ -927,18 +907,21 @@ void testParallelOrigMalloc(int total_calls) {
     for(int i = 0; i < num_threads ; i++) {
         threads[i].join();
     }
-    end = clock();
-    double time_taken = double(end - start) /  double(CLOCKS_PER_SEC); 
+	auto end = std::chrono::high_resolution_clock::now();
+    auto time_taken = std::chrono::duration<double, std::milli>(end-start).count();
+    // end = clock();
+    // double time_taken = double(end - start) /  double(CLOCKS_PER_SEC); 
     std::cout<<"Time taken for Original glib threaded TC Malloc allocator "<< time_taken << std::setprecision(10)<<" sec"<<std::endl;
 }
 
 void testParallelFastJeMalloc(int total_calls) {
     int num_threads = 8;
     int num_each = total_calls/num_threads;
-    clock_t start, end; 
+    // clock_t start, end; 
     vector<std::thread*> threads;
 
-    start = clock();
+	auto start = std::chrono::high_resolution_clock::now();
+    // start = clock();
     for(int i = 0; i < num_threads; i++) {
         auto t = new std::thread(pollJEMalloc, num_each);
         threads.push_back(t);
@@ -947,22 +930,22 @@ void testParallelFastJeMalloc(int total_calls) {
     for(int i = 0; i < num_threads; i++) {
         threads[i]->join();
     }
-
-    end = clock();
-    double time_taken = double(end - start) /  double(CLOCKS_PER_SEC); 
+	auto end = std::chrono::high_resolution_clock::now();
+    auto time_taken = std::chrono::duration<double, std::milli>(end-start).count();
+    // end = clock();
+    // double time_taken = double(end - start) /  double(CLOCKS_PER_SEC); 
     std::cout<<"Time taken for parallel JEMalloc allocator "<< time_taken << std::setprecision(10)<<" sec"<<std::endl;
 }
 
-*/
 
 int main(){
 	printf("Hello World\n");
-	init(10);
+	init(100);
 	// for(int i=0;i<20;i++){
-		auto ptr = my_malloc(8);
-		cout<<ptr<<endl;
+		// auto ptr = my_malloc(8);
+		// cout<<ptr<<endl;
 	// }
-	// testParallelOrigMalloc(10000);
-	// testParallelFastJeMalloc(10000);
+	testParallelOrigMalloc(10000);
+	testParallelFastJeMalloc(10000);
 	return 0;
 }

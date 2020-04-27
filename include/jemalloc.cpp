@@ -12,9 +12,69 @@
 #include<unistd.h>
 #include<cstring>
 #include<iomanip>
+#include<atomic>
 #include<thread>
 //#include<os/lock.h>
 using namespace std;
+
+#define ll long long
+
+/* Metric Collection Variables */
+
+// Count Variables
+atomic<ll> insert_created_chunk_into_list_count;
+atomic<ll> insert_created_run_into_list_count;
+atomic<ll> remove_run_count;
+atomic<ll> pages_map_count;
+atomic<ll> pages_unmap_count;
+atomic<ll> find_best_fit_count;
+atomic<ll> smallest_usable_run_larger_than_current_count;
+atomic<ll> arena_bin_run_size_calc_count;
+atomic<ll> arena_run_split_count;
+atomic<ll> chunk_alloc_mmap_count;
+atomic<ll> chunk_alloc_count;
+atomic<ll> arena_chunk_alloc_count;
+atomic<ll> arena_run_alloc_count;
+atomic<ll> arena_run_reg_alloc_count;
+atomic<ll> arena_bin_nonfull_run_get_count;
+atomic<ll> arena_bin_malloc_easy_count;
+atomic<ll> arena_bin_malloc_hard_count;
+atomic<ll> arena_malloc_small_count;
+atomic<ll> arena_malloc_large_count;
+atomic<ll> arena_malloc_count;
+atomic<ll> huge_malloc_count;
+atomic<ll> choose_arena_count;
+atomic<ll> my_malloc_count;
+atomic<ll> my_free_count;
+atomic<ll> arenas_create_count;
+
+// Time Variables
+atomic<ll> insert_created_chunk_into_list_time;
+atomic<ll> insert_created_run_into_list_time;
+atomic<ll> remove_run_time;
+atomic<ll> pages_map_time;
+atomic<ll> pages_unmap_time;
+atomic<ll> find_best_fit_time;
+atomic<ll> smallest_usable_run_larger_than_current_time;
+atomic<ll> arena_bin_run_size_calc_time;
+atomic<ll> arena_run_split_time;
+atomic<ll> chunk_alloc_mmap_time;
+atomic<ll> chunk_alloc_time;
+atomic<ll> arena_chunk_alloc_time;
+atomic<ll> arena_run_alloc_time;
+atomic<ll> arena_run_reg_alloc_time;
+atomic<ll> arena_bin_nonfull_run_get_time;
+atomic<ll> arena_bin_malloc_easy_time;
+atomic<ll> arena_bin_malloc_hard_time;
+atomic<ll> arena_malloc_small_time;
+atomic<ll> arena_malloc_large_time;
+atomic<ll> arena_malloc_time;
+atomic<ll> huge_malloc_time;
+atomic<ll> choose_arena_time;
+atomic<ll> my_malloc_time;
+atomic<ll> my_free_time;
+atomic<ll> arenas_create_time;
+
 
 typedef uint8_t arena_chunk_map_t;
 
@@ -136,11 +196,11 @@ static size_t	opt_quantum_2pow = QUANTUM_2POW_MIN;
 static size_t	opt_small_max_2pow = SMALL_MAX_2POW_DEFAULT;
 static size_t	opt_chunk_2pow = CHUNK_2POW_DEFAULT;
 
-inline void malloc_spin_lock(malloc_spinlock_t *lock){
+static inline void malloc_spin_lock(malloc_spinlock_t *lock){
 		pthread_mutex_lock(lock);
 }
 
-inline void malloc_spin_unlock(malloc_spinlock_t *lock){
+static inline void malloc_spin_unlock(malloc_spinlock_t *lock){
 		pthread_mutex_unlock(lock);
 }
 
@@ -152,7 +212,7 @@ typedef struct arena_chunk_t arena_chunk_t;
 struct arena_bin_t{
 	arena_run_t *runcurr;  // current run used to service allocations of this bin size
 	vector<arena_run_t*> runs;  // list of all non-full runs
-	size_t reg_size;  // Size of regios in a run for this bin's size class
+	size_t reg_size;  // Size of regions in a run for this bin's size class
 	size_t run_size;  // Total size of a run for this bin's size class.
 	uint32_t nregs;  // Total number of regions in a run for this bin's size class.
 	uint32_t regs_mask_nelms;  // Number of elements in a run's regs_mask for this bin's size class.
@@ -254,36 +314,64 @@ struct arena_t {
 
 vector<arena_t*> arenas;
 
+// struct Object{
+// 	arena_chunk_t *chunk;
+// 	arena_run_t *run;
+// 	arena_t *arena;
+// };
+
 void insert_created_chunk_into_list(arena_t *arena, arena_chunk_t *chunk){
 	// insert the chunk into arena->runs_allocated
+	auto start = std::chrono::high_resolution_clock::now();
+	insert_created_chunk_into_list_count+=1;
 	arena->chunks.push_back(chunk);
+	auto end = std::chrono::high_resolution_clock::now();
+	insert_created_chunk_into_list_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 void insert_created_run_into_list(arena_t *arena, arena_run_t *run){
 	// insert the chunk into arena->runs_allocated
+	auto start = std::chrono::high_resolution_clock::now();
+	insert_created_run_into_list_count+=1;
 	arena->runs_allocated.push_back(run);
+	auto end = std::chrono::high_resolution_clock::now();
+	insert_created_run_into_list_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 void remove_run(arena_t* arena, vector<arena_run_t*> *runs, arena_run_t *run){
 	// remove run from runs
+	auto start = std::chrono::high_resolution_clock::now();
+	remove_run_count+=1;
 	runs->erase(std::remove(runs->begin(), runs->end(), run), runs->end());
+	auto end = std::chrono::high_resolution_clock::now();
+	remove_run_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 void* pages_map(void *addr, size_t size){
+	auto start = std::chrono::high_resolution_clock::now();
+	pages_map_count+=1;
 	void *ret;
 	ret = mmap(addr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 	if(ret==MAP_FAILED){
 		ret=NULL;
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	pages_map_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return ret;
 }
 
 void pages_unmap(void *addr, size_t size){
+	auto start = std::chrono::high_resolution_clock::now();
+	pages_unmap_count+=1;
 	munmap(addr, size);
+	auto end = std::chrono::high_resolution_clock::now();
+	pages_unmap_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 // arena->runs_avail_szad
 arena_run_t* find_best_fit(arena_t *arena, size_t chunk_size){
+	auto start = std::chrono::high_resolution_clock::now();
+	find_best_fit_count+=1;
 	int size=arena->runs_available.size();
 	for(int i=0;i<size;i++){
 		arena_run_t *curr_run = arena->runs_available[i];
@@ -293,11 +381,15 @@ arena_run_t* find_best_fit(arena_t *arena, size_t chunk_size){
 			return curr_run;
 		}
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	find_best_fit_time += std::chrono::duration<double, std::nano>(end-start).count();
   return NULL;
 }
 
 // From the given vector, return the first usable run
 arena_run_t* smallest_usable_run_larger_than_current(arena_t *arena, vector<arena_run_t*> *runs){
+	auto start = std::chrono::high_resolution_clock::now();
+	smallest_usable_run_larger_than_current_count+=1;
 	int run_vec_size=runs->size();
 	// return NULL;
 	arena_run_t *curr_run=NULL, *run=NULL;
@@ -308,12 +400,16 @@ arena_run_t* smallest_usable_run_larger_than_current(arena_t *arena, vector<aren
 			break;
 		}
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	smallest_usable_run_larger_than_current_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return run;
 }
 
 
 static size_t arena_bin_run_size_calc(arena_bin_t *bin, size_t min_run_size){
-		size_t try_run_size, good_run_size;
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_bin_run_size_calc_count+=1;
+	size_t try_run_size, good_run_size;
 	unsigned good_nregs, good_mask_nelms, good_reg0_offset;
 	unsigned try_nregs, try_mask_nelms, try_reg0_offset;
 
@@ -357,6 +453,8 @@ static size_t arena_bin_run_size_calc(arena_bin_t *bin, size_t min_run_size){
 	bin->regs_mask_nelms = good_mask_nelms;
 	bin->reg0_offset = good_reg0_offset;
 
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_run_size_calc_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return (good_run_size);
 }
 
@@ -368,6 +466,8 @@ void arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool small, 
 	* The size of run must be smaller/equal to the chunk size
 	* 
 	*/
+auto start = std::chrono::high_resolution_clock::now();
+arena_run_split_count+=1;
   arena_chunk_t *chunk, *allocated_chunk;
   size_t run_index, total_pages, pages_required, remaining_pages, index, need_pages;
 
@@ -390,31 +490,47 @@ void arena_run_split(arena_t *arena, arena_run_t *run, size_t size, bool small, 
 		}
   }
   chunk->pages_used += need_pages;
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_run_split_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
-inline void* chunk_alloc_mmap(size_t size){
+static inline void* chunk_alloc_mmap(size_t size){
+	auto start = std::chrono::high_resolution_clock::now();
+	chunk_alloc_mmap_count+=1;
 	void *ret;
 	size_t offset;
 
 	ret=pages_map(NULL, size);
 	if(ret==NULL){
+		auto end = std::chrono::high_resolution_clock::now();
+		chunk_alloc_mmap_time += std::chrono::duration<double, std::nano>(end-start).count();
 		return NULL;
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	chunk_alloc_mmap_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return ret;
 }
 
 void* chunk_alloc(size_t size, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	chunk_alloc_count+=1;
 	void *ret;
 	assert(size>0);
 	ret=chunk_alloc_mmap(size);
 	if(ret==NULL){
+		auto end = std::chrono::high_resolution_clock::now();
+		chunk_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 		return NULL;
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	chunk_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return ret;
 }
 
 arena_chunk_t *arena_chunk_alloc(arena_t* arena, size_t size){
 	// Creates a new chunk in the given arena of size.
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_chunk_alloc_count+=1;
 	arena_chunk_t *chunk;
 	if(arena->spare!=NULL){
 		chunk=arena->spare; // If there exists a spare arena available
@@ -423,6 +539,8 @@ arena_chunk_t *arena_chunk_alloc(arena_t* arena, size_t size){
 	else{
 		chunk = (arena_chunk_t*) chunk_alloc(chunksize, true);
 		if(chunk==NULL){
+			auto end = std::chrono::high_resolution_clock::now();
+			arena_chunk_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 			return NULL;
 		}
 		chunk->arena=arena;
@@ -432,11 +550,15 @@ arena_chunk_t *arena_chunk_alloc(arena_t* arena, size_t size){
 		chunk->size=size;
 	}
 	// insert into runs_avail_
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_chunk_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return chunk;
 }
 
 
 arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_run_alloc_count+=1;
   arena_chunk_t *chunk;
   arena_run_t *run, *temp_node;
 
@@ -449,6 +571,8 @@ arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero)
 
   if(run!=NULL){
     arena_run_split(arena, run, size, small, zero);
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_run_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
     return run;
   }
 
@@ -456,6 +580,8 @@ arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero)
   // create a new chunk
   chunk = arena_chunk_alloc(arena, size);
   if(chunk==NULL){
+	  auto end = std::chrono::high_resolution_clock::now();
+	  arena_run_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
     return NULL;
   }
 	/* 
@@ -468,10 +594,14 @@ arena_run_t* arena_run_alloc(arena_t *arena, size_t size, bool small, bool zero)
 	run->chunk_base_addr=chunk;
 	arena_run_split(arena, run, size, small, zero);
 	// printf("Finished Update\n");
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_run_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return (run);
 }
 
-inline void *arena_run_reg_alloc(arena_run_t *run, arena_bin_t *bin){
+static inline void *arena_run_reg_alloc(arena_run_t *run, arena_bin_t *bin){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_run_reg_alloc_count+=1;
   void *ret;
 
   unsigned curr_index, mask, bit, regind;
@@ -485,14 +615,15 @@ inline void *arena_run_reg_alloc(arena_run_t *run, arena_bin_t *bin){
     // Usable allocation found
 
     bit=ffs((int)mask) - 1;
-    regind = ((curr_index << (SIZEOF_INT_2POW + 3)) + bit);
+    // regind = ((curr_index << (SIZEOF_INT_2POW + 3)) + bit);
     // assert(regind < bin->nregs);
-    ret = (void *)(((uintptr_t)run) + bin->reg0_offset + (bin->reg_size * regind));
-
+    // ret = (void *)(((uintptr_t)run) + bin->reg0_offset + (bin->reg_size * regind));
+	ret = (void *) ((uintptr_t)run);
     /* Clear bit. */
     mask ^= (1U << bit);
     run->regs_mask[curr_index] = mask;
-
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_run_reg_alloc_time = std::chrono::duration<double, std::nano>(end-start).count();
     return (ret);
   }
   // Perform the same operation in a loop
@@ -512,7 +643,8 @@ inline void *arena_run_reg_alloc(arena_run_t *run, arena_bin_t *bin){
 
 			// Nothing before this element contains a free region.
 			run->regs_minelm = curr_index; /* Low payoff: + (mask == 0); */
-
+			auto end = std::chrono::high_resolution_clock::now();
+			arena_run_reg_alloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 			return ret;
 		}
 	}
@@ -521,7 +653,9 @@ inline void *arena_run_reg_alloc(arena_run_t *run, arena_bin_t *bin){
   return NULL;
 }
 
-inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
+static inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_bin_nonfull_run_get_count+=1;
   arena_run_t *run;
   unsigned i, remainder;
 
@@ -529,11 +663,16 @@ inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
   run = smallest_usable_run_larger_than_current(arena, &bin->runs);
   if(run!=NULL){
     remove_run(arena, &bin->runs, run);  // remove the run from bins->runs
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_nonfull_run_get_time += std::chrono::duration<double, std::nano>(end-start).count();
+
     return run;
   }
   // Allocate new run
   run = arena_run_alloc(arena, bin->run_size, true, false);
   if(run==NULL){
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_nonfull_run_get_time += std::chrono::duration<double, std::nano>(end-start).count();
     return NULL;
   }
   // Initialize new run
@@ -550,11 +689,15 @@ inline arena_run_t* arena_bin_nonfull_run_get(arena_t *arena, arena_bin_t *bin){
 		run->regs_mask[i] = (UINT_MAX >> ((1U << (SIZEOF_INT_2POW + 3)) - remainder));
 	}
 
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_nonfull_run_get_time += std::chrono::duration<double, std::nano>(end-start).count();
   return run;
 }
 
 
-inline void *arena_bin_malloc_easy(arena_t *arena, arena_bin_t *bin, arena_run_t *run){
+static inline void *arena_bin_malloc_easy(arena_t *arena, arena_bin_t *bin, arena_run_t *run){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_bin_malloc_easy_count+=1;
   void *ret; // return address pointer
 
   assert(run->nfree > 0);
@@ -562,23 +705,33 @@ inline void *arena_bin_malloc_easy(arena_t *arena, arena_bin_t *bin, arena_run_t
   ret=arena_run_reg_alloc(run, bin);
   assert(ret!=NULL);
   run->nfree-=1;
-
+	
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_malloc_easy_time += std::chrono::duration<double, std::nano>(end-start).count();
   return ret;
 }
 
-inline void *arena_bin_malloc_hard(arena_t *arena, arena_bin_t *bin){
+static inline void *arena_bin_malloc_hard(arena_t *arena, arena_bin_t *bin){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_bin_malloc_hard_count+=1;
   bin->runcurr = arena_bin_nonfull_run_get(arena, bin);
   // bin->runcurr contains the best fit available bin
   if(bin->runcurr==NULL){
+	  auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_malloc_hard_time = std::chrono::duration<double, std::nano>(end-start).count();
     return NULL;
   }
 
   assert(bin->runcurr->nfree>0);
 
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_bin_malloc_hard_time += std::chrono::duration<double, std::nano>(end-start).count();
   return arena_bin_malloc_easy(arena, bin, bin->runcurr);
 }
 
-inline void *arena_malloc_small(arena_t *arena, size_t size, bool zero){
+static inline void *arena_malloc_small(arena_t *arena, size_t size, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_malloc_small_count+=1;
 	void *ret; // contains the return pointer
 	arena_bin_t *bin; // bin information of the current arena
 	arena_run_t *run; // run information of the current arena
@@ -615,6 +768,8 @@ inline void *arena_malloc_small(arena_t *arena, size_t size, bool zero){
 
 	if (ret==NULL) {
 		malloc_spin_unlock(&arena->lock);
+		auto end = std::chrono::high_resolution_clock::now();
+		arena_malloc_small_time += std::chrono::duration<double, std::nano>(end-start).count();
 		return (NULL);
 	}
 
@@ -622,10 +777,14 @@ inline void *arena_malloc_small(arena_t *arena, size_t size, bool zero){
 	if(zero){
 		memset(ret, 0, size);
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_malloc_small_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return ret;
 }
 
 void *arena_malloc_large(arena_t *arena, size_t size, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_malloc_large_count+=1;
   void *ret; // return pointer container the mapped address
 
   // LARGE ALLOCATION
@@ -636,6 +795,8 @@ void *arena_malloc_large(arena_t *arena, size_t size, bool zero){
   ret=(void*) arena_run_alloc(arena, size, false, zero);
   if(ret==NULL){
     malloc_spin_unlock(&arena->lock);
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_malloc_large_time += std::chrono::duration<double, std::nano>(end-start).count();
     return NULL;
   }
 
@@ -643,15 +804,21 @@ void *arena_malloc_large(arena_t *arena, size_t size, bool zero){
   if(zero){
     memset(ret, 0, size);
   }
+  auto end = std::chrono::high_resolution_clock::now();
+	arena_malloc_large_time += std::chrono::duration<double, std::nano>(end-start).count();
   return ret;
 }
 
 
-inline void* arena_malloc(arena_t *arena, size_t size, bool zero){
+static inline void* arena_malloc(arena_t *arena, size_t size, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	arena_malloc_count+=1;
   assert(arena!=NULL);
   assert(size!=0);
 	assert(QUANTUM_CEILING(size) <= arena_maxclass);
 
+	auto end = std::chrono::high_resolution_clock::now();
+	arena_malloc_time += std::chrono::duration<double, std::nano>(end-start).count();
   if(size<=bin_maxclass){
     return arena_malloc_small(arena, size, zero);
   }
@@ -661,6 +828,8 @@ inline void* arena_malloc(arena_t *arena, size_t size, bool zero){
 }
 
 void* huge_malloc(size_t size, bool zero){
+	auto start = std::chrono::high_resolution_clock::now();
+	huge_malloc_count+=1;
   void *ret;
   size_t csize;
 
@@ -681,12 +850,14 @@ void* huge_malloc(size_t size, bool zero){
 	if(zero){
 		memset(ret, 0, csize);
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	huge_malloc_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return ret;
 }
 
 int num_threads;
 
-inline arena_t* choose_arena_given_index(int i){
+static inline arena_t* choose_arena_given_index(int i){
 	// Allocates arena in a round robin manner
 	// malloc_spin_lock();
 	// arena_index%=num_arenas;
@@ -699,7 +870,9 @@ inline arena_t* choose_arena_given_index(int i){
 }
 
 
-inline arena_t* choose_arena(){
+static inline arena_t* choose_arena(){
+	auto start = std::chrono::high_resolution_clock::now();
+	choose_arena_count+=1;
 	// Allocates arena in a round robin manner
 	// malloc_spin_lock();
 	arena_index%=num_arenas;
@@ -707,22 +880,28 @@ inline arena_t* choose_arena(){
 	arena_index+=1;
 	// malloc_spin_unlock();
 	// printf("Alloting to arena: %d\n", arena_index);
+	auto end = std::chrono::high_resolution_clock::now();
+	choose_arena_time += std::chrono::duration<double, std::nano>(end-start).count();
 	return return_arena;
 }
 
 
-inline void* my_malloc(size_t size, int i){
+static inline void* my_malloc(size_t size, int i){
+	auto start = std::chrono::high_resolution_clock::now();
+	my_malloc_count+=1;
   assert(size!=0);
-
+	auto end = std::chrono::high_resolution_clock::now();
+	my_malloc_time += std::chrono::duration<double, std::nano>(end-start).count();
   if(size<=arena_maxclass){
     return arena_malloc(choose_arena_given_index(i), size, false);
   }
   else{
     return huge_malloc(size, false);
   }
+  
 }
 
-inline void* my_malloc1(size_t size){
+static inline void* my_malloc1(size_t size){
   assert(size!=0);
 
   if(size<=arena_maxclass){
@@ -734,20 +913,26 @@ inline void* my_malloc1(size_t size){
 }
 
 void my_free(void *addr, size_t size){
+	auto start = std::chrono::high_resolution_clock::now();
+	my_free_count+=1;
 	// pages_unmap(addr, size);
 	// remove the run mapping 
-	// arena_run_t *run = (arena_run_t*) addr;
-	// arena_chunk_t *chunk = run->chunk_base_addr;
-	// arena_t *arena = chunk->arena;
+	arena_run_t *run = (arena_run_t*) addr;
+	arena_chunk_t *chunk = run->chunk_base_addr;
+	arena_t *arena = chunk->arena;
 	// arena_chunk_t* chunk = (arena_chunk_t*) CHUNK_ADDR2BASE(addr);
 	// printf("Size:%d\n", chunk->size);
-	// remove_run(arena, &arena->runs_allocated, run);
+	remove_run(arena, &arena->runs_allocated, run);
 	// arena->runs_allocated->remove();
 	// delete the page_mapping from the arena
+	auto end = std::chrono::high_resolution_clock::now();
+	my_free_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 
 void arenas_create(arena_t *arena){
+	auto start = std::chrono::high_resolution_clock::now();
+	arenas_create_count+=1;
 	arena->ndirty=0;
 	arena->spare=NULL;
 
@@ -757,7 +942,8 @@ void arenas_create(arena_t *arena){
 	size_t prev_run_size=pagesize;
 
 	// Initialize Data Structures
-
+	// arena->runs_allocated.reserve(1000);
+	// arena->runs_available.reserve(1000);
 	// Initialize chunks
 	/* 
 	Initialize bins:
@@ -805,6 +991,8 @@ void arenas_create(arena_t *arena){
 		prev_run_size = arena_bin_run_size_calc(bin, prev_run_size);
 		i+=1;
 	}
+	auto end = std::chrono::high_resolution_clock::now();
+	arenas_create_time += std::chrono::duration<double, std::nano>(end-start).count();
 }
 
 void init(int count){
@@ -866,7 +1054,6 @@ void init(int count){
 	}
 }
 
-
 void pollOrigMalloc(int num_times) {
     for(int i = 0; i < num_times; i++) {
        auto v = malloc(8);
@@ -877,7 +1064,8 @@ void pollOrigMalloc(int num_times) {
 void pollJEMalloc(int num_times, int index){
     for(int i = 0; i < num_times; i++) {
        auto v = my_malloc(8, index);
-    //    my_free(v, 8);
+	//    free(v);
+       my_free(v, 8);
     }
 }
 
@@ -926,10 +1114,40 @@ void testParallelFastJeMalloc(int total_calls) {
     std::cout<<"Time taken for parallel JEMalloc allocator "<< time_taken << std::setprecision(10)<<" sec"<<std::endl;
 }
 
+void printHoardStats(){
+	cout<<"Average Time Taken for insert_created_chunk_into_list: "<< insert_created_chunk_into_list_count<<" : "<< insert_created_chunk_into_list_time/insert_created_chunk_into_list_count<<endl;
+	cout<<"Average Time Taken for insert_created_run_into_list_count: "<< insert_created_run_into_list_count<<" : "<<insert_created_run_into_list_time/insert_created_run_into_list_count<<endl;
+	cout<<"Average Time Taken for remove_run_count: "<< remove_run_count<<" : "<< remove_run_time/remove_run_count<<endl;
+	cout<<"Average Time Taken for pages_map_count: "<< pages_map_count<<" : "<< pages_map_time/pages_map_count<<endl;
+	// cout<<"Average Time Taken for pages_unmap_count: "<< pages_unmap_count<<" : "<< pages_unmap_time/pages_unmap_count<<endl;
+	cout<<"Average Time Taken for find_best_fit_count: "<< find_best_fit_count<<" : "<< find_best_fit_time/find_best_fit_count<<endl;
+	cout<<"Average Time Taken for smallest_usable_run_larger_than_current_count: "<< smallest_usable_run_larger_than_current_count<<" : "<< smallest_usable_run_larger_than_current_time/smallest_usable_run_larger_than_current_count<<endl;
+	cout<<"Average Time Taken for arena_bin_run_size_calc_count: "<< arena_bin_run_size_calc_count<<" : "<< arena_bin_run_size_calc_time/arena_bin_run_size_calc_count<<endl;
+
+	cout<<"Average Time Taken for arena_run_split_count: "<< arena_run_split_count<<" : "<< arena_run_split_time/arena_run_split_count<<endl;
+	cout<<"Average Time Taken for chunk_alloc_mmap_count: "<< chunk_alloc_mmap_count<<" : "<< chunk_alloc_mmap_time/chunk_alloc_mmap_count<<endl;
+	cout<<"Average Time Taken for chunk_alloc_count: "<< chunk_alloc_count<<" : "<< chunk_alloc_time/chunk_alloc_count<<endl;
+	cout<<"Average Time Taken for arena_chunk_alloc_count: "<< arena_chunk_alloc_count<<" : "<< arena_chunk_alloc_time/arena_chunk_alloc_count<<endl;
+	cout<<"Average Time Taken for arena_run_alloc_count: "<< arena_run_alloc_count<<" : "<< arena_run_alloc_time/arena_run_alloc_count<<endl;
+	cout<<"Average Time Taken for arena_run_reg_alloc_count: "<< arena_run_reg_alloc_count<<" : "<< arena_run_reg_alloc_time/arena_run_reg_alloc_count<<endl;
+	cout<<"Average Time Taken for arena_bin_nonfull_run_get_count: "<<arena_bin_nonfull_run_get_count<<" : "<<arena_bin_nonfull_run_get_time/arena_bin_nonfull_run_get_count<<endl;
+	cout<<"Average Time Taken for arena_bin_malloc_easy_count: "<<arena_bin_malloc_easy_count<<" : "<<arena_bin_malloc_easy_time/arena_bin_malloc_easy_count<<endl;
+
+	cout<<"Average Time Taken for arena_bin_malloc_hard_count: "<<arena_bin_malloc_hard_count<<" : "<<arena_bin_malloc_hard_time/arena_bin_malloc_hard_count<<endl;
+	cout<<"Average Time Taken for arena_malloc_small_count: "<<arena_malloc_small_count<<" : "<<arena_malloc_small_time/arena_malloc_small_count<<endl;
+	cout<<"Average Time Taken for arena_malloc_large_count: "<<arena_malloc_large_count<<" : "<<arena_malloc_large_time/arena_malloc_large_count<<endl;
+	cout<<"Average Time Taken for arena_malloc_count: "<<arena_malloc_count<<" : "<<arena_malloc_time/arena_malloc_count<<endl;
+	cout<<"Average Time Taken for huge_malloc_count: "<<huge_malloc_count<<" : "<<huge_malloc_time/huge_malloc_count<<endl;
+	cout<<"Average Time Taken for choose_arena_count: "<<choose_arena_count<<" : "<<choose_arena_time/choose_arena_count<<endl;
+	cout<<"Average Time Taken for my_malloc_count: "<<my_malloc_count<<" : "<<my_malloc_time/my_malloc_count<<endl;
+	cout<<"Average Time Taken for my_free_count: "<< my_free_count<<" : "<<my_free_time/my_free_count<<endl;
+
+
+}
 
 int main(){
 	printf("Hello World\n");
-	init(10);
+	init(50);
 	// for(int i=0;i<20;i++){
 		// auto ptr = my_malloc1(8);
 		// cout<<ptr<<endl;
@@ -938,5 +1156,9 @@ int main(){
 	num_threads=100000;
 	testParallelOrigMalloc(100000);
 	testParallelFastJeMalloc(100000);
+
+
+	printf("\n\n");
+	printHoardStats();
 	return 0;
 }
